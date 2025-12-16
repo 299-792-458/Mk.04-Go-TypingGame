@@ -185,7 +185,7 @@ func main() {
 	// --- Iconic Layout ---
 
 	// A clean separator line
-	separator := canvas.NewRectangle(theme.Color(theme.ColorNameForeground))
+	separator := canvas.NewRectangle(theme.DefaultTheme().Color(theme.ColorNameForeground, theme.VariantDark))
 	separator.SetMinSize(fyne.NewSize(0, 1))
 
 	// The Typing Area
@@ -198,7 +198,7 @@ func main() {
 	)
 
 	// Background Card (Dark Panel)
-	bg := canvas.NewRectangle(theme.Color(theme.ColorNameInputBackground))
+	bg := canvas.NewRectangle(theme.DefaultTheme().Color(theme.ColorNameInputBackground, theme.VariantDark))
 	bg.CornerRadius = 16
 	
 	// Composite Panel
