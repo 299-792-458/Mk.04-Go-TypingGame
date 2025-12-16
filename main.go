@@ -46,7 +46,7 @@ const (
 	wpmLabel        = "분당 타수"
 	accuracyLabel   = "정확도"
 	inputHint       = "현재 문장을 입력하세요."
-	headerTitle     = "타자 연습: 애국가"
+	headerTitle     = "Mk.04-Go-TypingGame"
 	resetButtonText = "초기화"
 )
 
@@ -65,25 +65,49 @@ func main() {
 	a.Settings().SetTheme(customTheme)
 
 	w := a.NewWindow(headerTitle)
-	w.Resize(fyne.NewSize(820, 640))
+	w.Resize(fyne.NewSize(900, 600))
 
 	targetLines := normalizeLines(targetText)
+
+	// UI Components
 	currentLabel := widget.NewLabel(fmt.Sprintf("현재 문장 (1/%d)", len(targetLines)))
-	currentTarget := widget.NewLabelWithStyle(targetLines[0], fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	currentLabel.Alignment = fyne.TextAlignCenter
+	currentLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	// RichText for Target
+	currentTarget := widget.NewRichTextFromMarkdown("")
 	currentTarget.Wrapping = fyne.TextWrapWord
 
+	// Helper to set initial text
+	setTargetText := func(text string) {
+		currentTarget.Segments = []widget.RichTextSegment{
+			&widget.TextSegment{
+				Text: text,
+				Style: widget.RichTextStyle{
+					Alignment: fyne.TextAlignCenter,
+					SizeName:  theme.SizeNameHeadingText,
+					ColorName: theme.ColorNameForeground,
+				},
+			},
+		}
+		currentTarget.Refresh()
+	}
+	setTargetText(targetLines[0])
+
+	// Stats
 	progressBar := widget.NewProgressBar()
 	progressValue := widget.NewLabel("0%")
-	progressRow := container.NewVBox(labelRow(progressLabel, progressValue), progressBar)
-
+	progressValue.Alignment = fyne.TextAlignCenter
+	
 	wpmBar := widget.NewProgressBar()
 	wpmValue := widget.NewLabel("0타/분")
-	wpmRow := container.NewVBox(labelRow(wpmLabel, wpmValue), wpmBar)
+	wpmValue.Alignment = fyne.TextAlignCenter
 
 	accuracyBar := widget.NewProgressBar()
 	accuracyValue := widget.NewLabel("100%")
-	accuracyRow := container.NewVBox(labelRow(accuracyLabel, accuracyValue), accuracyBar)
+	accuracyValue.Alignment = fyne.TextAlignCenter
 
+	// Input
 	input := widget.NewEntry()
 	input.SetPlaceHolder(inputHint)
 
@@ -100,6 +124,7 @@ func main() {
 			input.CursorColumn = len([]rune(text))
 		}
 
+		// Logic for stats
 		pre := strings.Join(targetLines[:currentIdx], "\n")
 		typedTotal := pre
 		if currentIdx > 0 {
@@ -122,23 +147,53 @@ func main() {
 		wpmBar.SetValue(math.Min(m.tpm/maxTPM, 1))
 		wpmValue.SetText(fmt.Sprintf("%.0f타/분", m.tpm))
 
-		cleanInput := strings.TrimSpace(text)
-		currentTargetLine := targetLines[currentIdx]
+		cleanInput := text // already stripped of newlines above
+		targetLine := targetLines[currentIdx]
 
-		// Check if input matches target
-		if cleanInput == currentTargetLine {
-			// Visual feedback that we are ready to move on
+		// --- Rich Text Coloring Logic ---
+		var segments []widget.RichTextSegment
+		inputRunes := []rune(cleanInput)
+		targetRunes := []rune(targetLine)
+
+		// 1. Process matched/mismatched part
+		for i, r := range targetRunes {
+			var colorName fyne.ThemeColorName
+			if i < len(inputRunes) {
+				if inputRunes[i] == r {
+					colorName = theme.ColorNameSuccess // Green
+				} else {
+					colorName = theme.ColorNameError // Red
+				}
+			} else {
+				colorName = theme.ColorNameForeground // Default
+			}
+
+			// Optimization: Group consecutive characters of same color?
+			// For simplicity and correctness, let's just make individual segments or small groups.
+			// Grouping is better for performance.
+			segments = append(segments, &widget.TextSegment{
+				Text: string(r),
+				Style: widget.RichTextStyle{
+					Alignment: fyne.TextAlignCenter,
+					SizeName:  theme.SizeNameHeadingText, // Make it big
+					ColorName: colorName,
+				},
+			})
+		}
+		currentTarget.Segments = segments
+		currentTarget.Refresh()
+
+		// Check completion
+		if cleanInput == targetLine {
 			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d) - [스페이스]나 [엔터]를 눌러 계속", currentIdx+1, len(targetLines)))
 			
-			// Check for triggers: Trailing space or Newline (Enter)
 			isSpaceTrigger := strings.HasSuffix(text, " ")
 			isEnterTrigger := strings.Contains(originalText, "\n")
 
 			if isSpaceTrigger || isEnterTrigger {
-				advance(&currentIdx, targetLines, currentLabel, currentTarget, input)
+				advance(&currentIdx, targetLines, currentLabel, input, setTargetText)
 			}
 		} else {
-			// Reset label if user backspaced or is typing
 			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d)", currentIdx+1, len(targetLines)))
 		}
 	}
@@ -151,33 +206,49 @@ func main() {
 		started = false
 		currentIdx = 0
 		currentLabel.SetText(fmt.Sprintf("현재 문장 (1/%d)", len(targetLines)))
-		currentTarget.SetText(targetLines[0])
+		setTargetText(targetLines[0])
 		update("")
 	})
 
-	stats := container.NewVBox(progressRow, wpmRow, accuracyRow)
-	content := container.NewVBox(
+	// --- Layout Construction ---
+
+	// Stats Card
+	statsContainer := container.NewGridWithColumns(3,
+		container.NewVBox(widget.NewLabelWithStyle(progressLabel, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}), progressValue, progressBar),
+		container.NewVBox(widget.NewLabelWithStyle(wpmLabel, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}), wpmValue, wpmBar),
+		container.NewVBox(widget.NewLabelWithStyle(accuracyLabel, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}), accuracyValue, accuracyBar),
+	)
+	statsCard := widget.NewCard("", "", container.NewPadded(statsContainer))
+
+	// Main Typing Area
+	typingContent := container.NewVBox(
 		currentLabel,
-		currentTarget,
-		widget.NewLabel("타자 입력"),
-		input,
 		widget.NewSeparator(),
-		stats,
-		layout.NewSpacer(),
-		reset,
+		container.NewPadded(currentTarget), // The colorful text
+		widget.NewSeparator(),
+		input,
+	)
+	typingCard := widget.NewCard("", "", container.NewPadded(typingContent))
+
+	// Global Container
+	mainContainer := container.NewBorder(
+		nil,      // Top
+		reset,    // Bottom
+		nil, nil, // Left, Right
+		container.NewVBox( // Center content stacked
+			statsCard,
+			layout.NewSpacer(),
+			typingCard,
+			layout.NewSpacer(),
+		),
 	)
 
-	w.SetContent(content)
+	// Add some outer padding
+	w.SetContent(container.NewPadded(mainContainer))
+	
+	// Initial update to set 0 values
 	update("")
 	w.ShowAndRun()
-}
-
-func labelRow(title string, value *widget.Label) fyne.CanvasObject {
-	return container.NewHBox(
-		widget.NewLabel(title),
-		layout.NewSpacer(),
-		value,
-	)
 }
 
 func calculateMetrics(text string, started bool, start time.Time) metrics {
@@ -231,18 +302,18 @@ func minInt(a, b int) int {
 	return b
 }
 
-func advance(currentIdx *int, targetLines []string, currentLabel *widget.Label, currentTarget *widget.Label, input *widget.Entry) {
+func advance(currentIdx *int, targetLines []string, currentLabel *widget.Label, input *widget.Entry, setTargetText func(string)) {
 	if *currentIdx+1 >= len(targetLines) {
 		// Completed all lines.
 		input.SetText("")
 		currentLabel.SetText("완료! (모든 문장 입력)")
-		currentTarget.SetText(targetLines[len(targetLines)-1])
+		setTargetText(targetLines[len(targetLines)-1])
 		return
 	}
 	*currentIdx++
 	input.SetText("")
 	currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d)", *currentIdx+1, len(targetLines)))
-	currentTarget.SetText(targetLines[*currentIdx])
+	setTargetText(targetLines[*currentIdx])
 }
 
 type fontTheme struct {
