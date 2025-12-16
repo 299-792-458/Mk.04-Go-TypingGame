@@ -65,7 +65,7 @@ func main() {
 
 	// 2. RichText for Target (The "Iconic" Centerpiece)
 	currentTarget := widget.NewRichTextFromMarkdown("")
-	currentTarget.Wrapping = fyne.TextWrapWord
+	currentTarget.Wrapping = fyne.TextWrapOff
 	// We will center the *container* holding this, not the text segments themselves, to avoid breaking lines.
 
 	// Helper to set initial text
