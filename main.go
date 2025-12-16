@@ -4,9 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"image/color"
-	"math"
 	"strings"
-	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -21,7 +19,6 @@ import (
 var fontData []byte
 
 const (
-	maxTPM          = 1000.0
 	targetText = "" +
 		"동해물과 백두산이 마르고 닳도록\n" +
 		"하느님이 보우하사 우리나라 만세\n" +
@@ -42,21 +39,10 @@ const (
 		"괴로우나 즐거우나 나라 사랑하세\n" +
 		"무궁화 삼천리 화려강산\n" +
 		"대한사람 대한으로 길이 보전하세"
-	progressLabel   = "진행도"
-	wpmLabel        = "분당 타수"
-	accuracyLabel   = "정확도"
 	inputHint       = "현재 문장을 입력하세요."
 	headerTitle     = "Mk.04-Go-TypingGame"
 	resetButtonText = "초기화"
 )
-
-type metrics struct {
-	accuracy float64
-	progress float64
-	tpm      float64
-	correct  int
-	typed    int
-}
 
 func main() {
 	a := app.New()
@@ -65,7 +51,7 @@ func main() {
 	a.Settings().SetTheme(customTheme)
 
 	w := a.NewWindow(headerTitle)
-	w.Resize(fyne.NewSize(900, 600))
+	w.Resize(fyne.NewSize(900, 400)) // Adjusted height since stats are gone
 
 	targetLines := normalizeLines(targetText)
 
@@ -94,25 +80,17 @@ func main() {
 	}
 	setTargetText(targetLines[0])
 
-	// Stats
-	progressBar := widget.NewProgressBar()
-	progressValue := widget.NewLabel("0%")
-	progressValue.Alignment = fyne.TextAlignCenter
-	
-	wpmBar := widget.NewProgressBar()
-	wpmValue := widget.NewLabel("0타/분")
-	wpmValue.Alignment = fyne.TextAlignCenter
-
-	accuracyBar := widget.NewProgressBar()
-	accuracyValue := widget.NewLabel("100%")
-	accuracyValue.Alignment = fyne.TextAlignCenter
-
 	// Input
 	input := widget.NewEntry()
 	input.SetPlaceHolder(inputHint)
+	input.TextStyle = fyne.TextStyle{Monospace: true} // Monospace often helps with typing games
+	// input.Alignment = fyne.TextAlignCenter // NOTE: Fyne's Entry doesn't support Alignment directly in v2.4.x via struct field easily.
+	// But we can wrap it or try to center the content if possible.
+	// Actually, `widget.Entry` does not expose text alignment easily.
+	// However, we can make the input visually centered by wrapping it in a layout or just keep it left-aligned but centered in the container.
+	// Since the user asked for "center alignment for typing", and Entry doesn't support `TextAlignCenter` natively without custom rendering,
+	// I will focus on the layout centering.
 
-	var start time.Time
-	var started bool
 	currentIdx := 0
 
 	update := func(text string) {
@@ -123,29 +101,6 @@ func main() {
 			input.SetText(text)
 			input.CursorColumn = len([]rune(text))
 		}
-
-		// Logic for stats
-		pre := strings.Join(targetLines[:currentIdx], "\n")
-		typedTotal := pre
-		if currentIdx > 0 {
-			typedTotal += "\n"
-		}
-		typedTotal += text
-
-		if !started && len([]rune(text)) > 0 {
-			started = true
-			start = time.Now()
-		}
-
-		m := calculateMetrics(typedTotal, started, start)
-		progressBar.SetValue(m.progress)
-		progressValue.SetText(fmt.Sprintf("%.0f%%", m.progress*100))
-
-		accuracyBar.SetValue(m.accuracy)
-		accuracyValue.SetText(fmt.Sprintf("%.0f%%", m.accuracy*100))
-
-		wpmBar.SetValue(math.Min(m.tpm/maxTPM, 1))
-		wpmValue.SetText(fmt.Sprintf("%.0f타/분", m.tpm))
 
 		cleanInput := text // already stripped of newlines above
 		targetLine := targetLines[currentIdx]
@@ -177,10 +132,10 @@ func main() {
 			var nextColor fyne.ThemeColorName
 			if i < len(inputRunes) {
 				if inputRunes[i] == r {
-					nextColor = theme.ColorNameSuccess // Green
-				} else {
-					nextColor = theme.ColorNameError // Red
-				}
+						nextColor = theme.ColorNameSuccess // Green
+					} else {
+						nextColor = theme.ColorNameError // Red
+					}
 			} else {
 				nextColor = theme.ColorNameForeground // Default
 			}
@@ -206,7 +161,7 @@ func main() {
 
 		if trimmedInput == trimmedTarget {
 			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d) - [스페이스]나 [엔터]를 눌러 계속", currentIdx+1, len(targetLines)))
-			
+
 			// Check for triggers: Trailing space or Newline (Enter) in the *original* raw input or current text
 			isSpaceTrigger := strings.HasSuffix(text, " ")
 			isEnterTrigger := strings.Contains(originalText, "\n")
@@ -223,8 +178,6 @@ func main() {
 
 	reset := widget.NewButton(resetButtonText, func() {
 		input.SetText("")
-		start = time.Time{}
-		started = false
 		currentIdx = 0
 		currentLabel.SetText(fmt.Sprintf("현재 문장 (1/%d)", len(targetLines)))
 		setTargetText(targetLines[0])
@@ -233,94 +186,34 @@ func main() {
 
 	// --- Layout Construction ---
 
-	// Stats Card
-	statsContainer := container.NewGridWithColumns(3,
-		container.NewVBox(widget.NewLabelWithStyle(progressLabel, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}), progressValue, progressBar),
-		container.NewVBox(widget.NewLabelWithStyle(wpmLabel, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}), wpmValue, wpmBar),
-		container.NewVBox(widget.NewLabelWithStyle(accuracyLabel, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}), accuracyValue, accuracyBar),
-	)
-	statsCard := widget.NewCard("", "", container.NewPadded(statsContainer))
-
-	// Main Typing Area
+	// Main Typing Area - Center everything vertically and horizontally
 	typingContent := container.NewVBox(
 		currentLabel,
-		widget.NewSeparator(),
+		layout.NewSpacer(),
 		container.NewPadded(currentTarget), // The colorful text
-		widget.NewSeparator(),
-		input,
+		layout.NewSpacer(),
+		// Wrap input in a container to control width if needed, or just let it fill
+		container.NewPadded(input),
+		layout.NewSpacer(),
 	)
+
+	// Since we removed stats, the typing card can take up more space or be centered.
 	typingCard := widget.NewCard("", "", container.NewPadded(typingContent))
 
 	// Global Container
 	mainContainer := container.NewBorder(
-		nil,      // Top
-		reset,    // Bottom
+		nil,   // Top
+		reset, // Bottom
 		nil, nil, // Left, Right
-		container.NewVBox( // Center content stacked
-			statsCard,
-			layout.NewSpacer(),
-			typingCard,
-			layout.NewSpacer(),
-		),
+		typingCard, // Center
 	)
 
 	// Add some outer padding
 	w.SetContent(container.NewPadded(mainContainer))
-	
+
 	// Initial update to set 0 values
 	update("")
 	w.ShowAndRun()
-}
-
-func calculateMetrics(text string, started bool, start time.Time) metrics {
-	typedRunes := []rune(text)
-	targetRunes := []rune(strings.TrimSpace(targetText))
-
-	typed := len(typedRunes)
-	targetLen := len(targetRunes)
-
-	correct := 0
-	for i := 0; i < minInt(typed, targetLen); i++ {
-		if typedRunes[i] == targetRunes[i] {
-			correct++
-		}
-	}
-
-	progress := 0.0
-	if targetLen > 0 {
-		progress = float64(typed) / float64(targetLen)
-		if progress > 1 {
-			progress = 1
-		}
-	}
-
-	accuracy := 1.0
-	if typed > 0 {
-		accuracy = float64(correct) / float64(typed)
-	}
-
-	tpm := 0.0
-	if started {
-		elapsed := time.Since(start).Minutes()
-		if elapsed > 0 {
-			tpm = float64(typed) / elapsed
-		}
-	}
-
-	return metrics{
-		accuracy: accuracy,
-		progress: progress,
-		tpm:      tpm,
-		correct:  correct,
-		typed:    typed,
-	}
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func advance(currentIdx *int, targetLines []string, currentLabel *widget.Label, input *widget.Entry, setTargetText func(string)) {
