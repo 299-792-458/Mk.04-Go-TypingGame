@@ -155,38 +155,59 @@ func main() {
 		inputRunes := []rune(cleanInput)
 		targetRunes := []rune(targetLine)
 
-		// 1. Process matched/mismatched part
+		// Grouping logic for TextSegments
+		var currentSegmentText strings.Builder
+		var currentColor fyne.ThemeColorName
+
+		flushSegment := func() {
+			if currentSegmentText.Len() > 0 {
+				segments = append(segments, &widget.TextSegment{
+					Text: currentSegmentText.String(),
+					Style: widget.RichTextStyle{
+						Alignment: fyne.TextAlignCenter,
+						SizeName:  theme.SizeNameHeadingText,
+						ColorName: currentColor,
+					},
+				})
+				currentSegmentText.Reset()
+			}
+		}
+
 		for i, r := range targetRunes {
-			var colorName fyne.ThemeColorName
+			var nextColor fyne.ThemeColorName
 			if i < len(inputRunes) {
 				if inputRunes[i] == r {
-					colorName = theme.ColorNameSuccess // Green
+					nextColor = theme.ColorNameSuccess // Green
 				} else {
-					colorName = theme.ColorNameError // Red
+					nextColor = theme.ColorNameError // Red
 				}
 			} else {
-				colorName = theme.ColorNameForeground // Default
+				nextColor = theme.ColorNameForeground // Default
 			}
 
-			// Optimization: Group consecutive characters of same color?
-			// For simplicity and correctness, let's just make individual segments or small groups.
-			// Grouping is better for performance.
-			segments = append(segments, &widget.TextSegment{
-				Text: string(r),
-				Style: widget.RichTextStyle{
-					Alignment: fyne.TextAlignCenter,
-					SizeName:  theme.SizeNameHeadingText, // Make it big
-					ColorName: colorName,
-				},
-			})
+			if i == 0 {
+				currentColor = nextColor
+			}
+
+			if nextColor != currentColor {
+				flushSegment()
+				currentColor = nextColor
+			}
+			currentSegmentText.WriteRune(r)
 		}
+		flushSegment() // Flush remaining
+
 		currentTarget.Segments = segments
 		currentTarget.Refresh()
 
-		// Check completion
-		if cleanInput == targetLine {
+		// Check completion (Ignore trailing space for the match check)
+		trimmedInput := strings.TrimSpace(cleanInput)
+		trimmedTarget := strings.TrimSpace(targetLine)
+
+		if trimmedInput == trimmedTarget {
 			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d) - [스페이스]나 [엔터]를 눌러 계속", currentIdx+1, len(targetLines)))
 			
+			// Check for triggers: Trailing space or Newline (Enter) in the *original* raw input or current text
 			isSpaceTrigger := strings.HasSuffix(text, " ")
 			isEnterTrigger := strings.Contains(originalText, "\n")
 
