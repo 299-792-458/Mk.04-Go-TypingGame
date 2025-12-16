@@ -51,18 +51,21 @@ func main() {
 	a.Settings().SetTheme(customTheme)
 
 	w := a.NewWindow(headerTitle)
-	w.Resize(fyne.NewSize(900, 400)) // Adjusted height since stats are gone
+	w.Resize(fyne.NewSize(1000, 600))
 
 	targetLines := normalizeLines(targetText)
 
-	// UI Components
-	currentLabel := widget.NewLabel(fmt.Sprintf("현재 문장 (1/%d)", len(targetLines)))
-	currentLabel.Alignment = fyne.TextAlignCenter
-	currentLabel.TextStyle = fyne.TextStyle{Bold: true}
+	// --- UI Components ---
 
-	// RichText for Target
+	// 1. Progress Label (Subtle, Top)
+	currentLabel := widget.NewLabel(fmt.Sprintf("LEVEL %d / %d", 1, len(targetLines)))
+	currentLabel.Alignment = fyne.TextAlignCenter
+	currentLabel.TextStyle = fyne.TextStyle{Monospace: true}
+
+	// 2. RichText for Target (The "Iconic" Centerpiece)
 	currentTarget := widget.NewRichTextFromMarkdown("")
 	currentTarget.Wrapping = fyne.TextWrapWord
+	// We will center the *container* holding this, not the text segments themselves, to avoid breaking lines.
 
 	// Helper to set initial text
 	setTargetText := func(text string) {
@@ -70,8 +73,7 @@ func main() {
 			&widget.TextSegment{
 				Text: text,
 				Style: widget.RichTextStyle{
-					Alignment: fyne.TextAlignCenter,
-					SizeName:  theme.SizeNameHeadingText,
+					SizeName:  theme.SizeNameHeadingText, // Large text
 					ColorName: theme.ColorNameForeground,
 				},
 			},
@@ -80,29 +82,25 @@ func main() {
 	}
 	setTargetText(targetLines[0])
 
-	// Input
+	// 3. Input (Minimalist)
 	input := widget.NewEntry()
 	input.SetPlaceHolder(inputHint)
-	input.TextStyle = fyne.TextStyle{Monospace: true} // Monospace often helps with typing games
-	// input.Alignment = fyne.TextAlignCenter // NOTE: Fyne's Entry doesn't support Alignment directly in v2.4.x via struct field easily.
-	// But we can wrap it or try to center the content if possible.
-	// Actually, `widget.Entry` does not expose text alignment easily.
-	// However, we can make the input visually centered by wrapping it in a layout or just keep it left-aligned but centered in the container.
-	// Since the user asked for "center alignment for typing", and Entry doesn't support `TextAlignCenter` natively without custom rendering,
-	// I will focus on the layout centering.
+	input.TextStyle = fyne.TextStyle{Monospace: true} 
+	
+	// Input Styling: Remove border if possible or make it look clean. 
+	// Fyne's Entry is standard. We can wrap it.
 
 	currentIdx := 0
 
 	update := func(text string) {
 		originalText := text
-		// Strip newlines to keep entry single-line.
 		if strings.Contains(text, "\n") {
 			text = strings.ReplaceAll(text, "\n", "")
 			input.SetText(text)
 			input.CursorColumn = len([]rune(text))
 		}
 
-		cleanInput := text // already stripped of newlines above
+		cleanInput := text 
 		targetLine := targetLines[currentIdx]
 
 		// --- Rich Text Coloring Logic ---
@@ -110,7 +108,6 @@ func main() {
 		inputRunes := []rune(cleanInput)
 		targetRunes := []rune(targetLine)
 
-		// Grouping logic for TextSegments
 		var currentSegmentText strings.Builder
 		var currentColor fyne.ThemeColorName
 
@@ -119,9 +116,10 @@ func main() {
 				segments = append(segments, &widget.TextSegment{
 					Text: currentSegmentText.String(),
 					Style: widget.RichTextStyle{
-						Alignment: fyne.TextAlignCenter,
+						// CRITICAL FIX: Do NOT set Alignment here. It breaks the line.
 						SizeName:  theme.SizeNameHeadingText,
 						ColorName: currentColor,
+						TextStyle: fyne.TextStyle{Monospace: true}, // Align with input
 					},
 				})
 				currentSegmentText.Reset()
@@ -132,12 +130,12 @@ func main() {
 			var nextColor fyne.ThemeColorName
 			if i < len(inputRunes) {
 				if inputRunes[i] == r {
-						nextColor = theme.ColorNameSuccess // Green
-					} else {
-						nextColor = theme.ColorNameError // Red
-					}
+					nextColor = theme.ColorNameSuccess
+				} else {
+					nextColor = theme.ColorNameError
+				}
 			} else {
-				nextColor = theme.ColorNameForeground // Default
+				nextColor = theme.ColorNameForeground
 			}
 
 			if i == 0 {
@@ -150,19 +148,18 @@ func main() {
 			}
 			currentSegmentText.WriteRune(r)
 		}
-		flushSegment() // Flush remaining
+		flushSegment()
 
 		currentTarget.Segments = segments
 		currentTarget.Refresh()
 
-		// Check completion (Ignore trailing space for the match check)
+		// Check completion
 		trimmedInput := strings.TrimSpace(cleanInput)
 		trimmedTarget := strings.TrimSpace(targetLine)
 
 		if trimmedInput == trimmedTarget {
-			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d) - [스페이스]나 [엔터]를 눌러 계속", currentIdx+1, len(targetLines)))
-
-			// Check for triggers: Trailing space or Newline (Enter) in the *original* raw input or current text
+			currentLabel.SetText(fmt.Sprintf("LEVEL %d / %d - PRESS [SPACE] or [ENTER]", currentIdx+1, len(targetLines)))
+			
 			isSpaceTrigger := strings.HasSuffix(text, " ")
 			isEnterTrigger := strings.Contains(originalText, "\n")
 
@@ -170,52 +167,58 @@ func main() {
 				advance(&currentIdx, targetLines, currentLabel, input, setTargetText)
 			}
 		} else {
-			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d)", currentIdx+1, len(targetLines)))
+			currentLabel.SetText(fmt.Sprintf("LEVEL %d / %d", currentIdx+1, len(targetLines)))
 		}
 	}
 
 	input.OnChanged = update
 
-	reset := widget.NewButton(resetButtonText, func() {
+	reset := widget.NewButton("RESET", func() {
 		input.SetText("")
 		currentIdx = 0
-		currentLabel.SetText(fmt.Sprintf("현재 문장 (1/%d)", len(targetLines)))
+		currentLabel.SetText(fmt.Sprintf("LEVEL 1 / %d", len(targetLines)))
 		setTargetText(targetLines[0])
 		update("")
 	})
 
-	// --- Layout Construction ---
+	// --- Iconic Layout ---
 
-	// Main Typing Area - Center everything vertically and horizontally
-	typingContent := container.NewVBox(
-		currentLabel,
+	// A clean separator line
+	separator := canvas.NewRectangle(theme.Color(theme.ColorNameForeground))
+	separator.SetMinSize(fyne.NewSize(0, 1))
+
+	// The Typing Area
+	typingArea := container.NewVBox(
 		layout.NewSpacer(),
-		container.NewPadded(currentTarget), // The colorful text
-		layout.NewSpacer(),
-		// Wrap input in a container to control width if needed, or just let it fill
-		container.NewPadded(input),
+		container.NewCenter(currentTarget), // Centered Text
+		container.NewPadded(separator),     // Decorative Line
+		input,                              // Input Field
 		layout.NewSpacer(),
 	)
 
-	// Since we removed stats, the typing card can take up more space or be centered.
-	typingCard := widget.NewCard("", "", container.NewPadded(typingContent))
+	// Background Card (Dark Panel)
+	bg := canvas.NewRectangle(theme.Color(theme.ColorNameInputBackground))
+	bg.CornerRadius = 16
+	
+	// Composite Panel
+	panel := container.NewStack(
+		bg,
+		container.NewPadded(typingArea),
+	)
 
-	// Global Container
+	// Main Layout
 	mainContainer := container.NewBorder(
-		nil,   // Top
-		reset, // Bottom
+		container.NewVBox(currentLabel, widget.NewSeparator()), // Top
+		container.NewVBox(widget.NewSeparator(), reset),        // Bottom
 		nil, nil, // Left, Right
-		typingCard, // Center
+		container.NewPadded(panel), // Center
 	)
 
-	// Add some outer padding
 	w.SetContent(container.NewPadded(mainContainer))
-
-	// Initial update to set 0 values
+	
 	update("")
 	w.ShowAndRun()
 }
-
 func advance(currentIdx *int, targetLines []string, currentLabel *widget.Label, input *widget.Entry, setTargetText func(string)) {
 	if *currentIdx+1 >= len(targetLines) {
 		// Completed all lines.
