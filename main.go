@@ -92,6 +92,7 @@ func main() {
 	currentIdx := 0
 
 	update := func(text string) {
+		originalText := text
 		// Strip newlines to keep entry single-line.
 		if strings.Contains(text, "\n") {
 			text = strings.ReplaceAll(text, "\n", "")
@@ -121,8 +122,24 @@ func main() {
 		wpmBar.SetValue(math.Min(m.tpm/maxTPM, 1))
 		wpmValue.SetText(fmt.Sprintf("%.0f타/분", m.tpm))
 
-		if text == targetLines[currentIdx] {
-			advance(&currentIdx, targetLines, currentLabel, currentTarget, input)
+		cleanInput := strings.TrimSpace(text)
+		currentTargetLine := targetLines[currentIdx]
+
+		// Check if input matches target
+		if cleanInput == currentTargetLine {
+			// Visual feedback that we are ready to move on
+			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d) - [스페이스]나 [엔터]를 눌러 계속", currentIdx+1, len(targetLines)))
+			
+			// Check for triggers: Trailing space or Newline (Enter)
+			isSpaceTrigger := strings.HasSuffix(text, " ")
+			isEnterTrigger := strings.Contains(originalText, "\n")
+
+			if isSpaceTrigger || isEnterTrigger {
+				advance(&currentIdx, targetLines, currentLabel, currentTarget, input)
+			}
+		} else {
+			// Reset label if user backspaced or is typing
+			currentLabel.SetText(fmt.Sprintf("현재 문장 (%d/%d)", currentIdx+1, len(targetLines)))
 		}
 	}
 
